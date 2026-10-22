@@ -7,10 +7,24 @@ if(!CAT||!START||!OUTDIR){console.error("uso: node generar.js catalogo.html AAAA
 const html=fs.readFileSync(CAT,'utf8');
 const scripts=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m=>m[1]);
 let js=scripts[scripts.length-1];js=js.slice(0,js.indexOf('// ---------- interfaz ----------'));js=js.replace(/function drawHero\(\)\{[\s\S]*$/,'');
+// Fotos reales: carpeta ../fotos (nombre = modelo, ej. iphone-13-pro.jpg) y fotos subidas desde el panel del catálogo
+js=js.replace('"Imagen ilustrativa";fitFont(ctx,sm','(loadPhoto(p.model)?"Foto real del equipo":"Imagen ilustrativa");fitFont(ctx,sm');
+js=js.replace(/photo\.complete && photo\.naturalWidth/g,'(photo.width>0)').replace(/photo\.naturalWidth/g,'photo.width').replace(/photo\.naturalHeight/g,'photo.height');
+const {loadImage}=require('@napi-rs/canvas');
+const FOTOS_DIR=path.join(__dirname,'..','fotos');
+const slugM=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+global.__fotos={};
 global.localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
 global.document={createElement:()=>createCanvas(10,10),fonts:{load:async()=>{}}};global.Image=class{};global.window={};
 fs.mkdirSync(path.join(OUTDIR,'historias'),{recursive:true});fs.mkdirSync(path.join(OUTDIR,'reels'),{recursive:true});
+(async()=>{
+const stM=html.match(/const STATE=(\{[\s\S]*?\});\nconst GRADES/);
+let photosPanel={};try{if(stM)photosPanel=(JSON.parse(stM[1]).photos)||{}}catch(e){}
+for(const [model,url] of Object.entries(photosPanel)){try{global.__fotos[model]=await loadImage(Buffer.from(url.split(",")[1],"base64"))}catch(e){}}
+if(fs.existsSync(FOTOS_DIR))for(const f of fs.readdirSync(FOTOS_DIR)){if(!/\.(jpe?g|png|webp)$/i.test(f))continue;try{global.__fotos["slug:"+f.replace(/\.[^.]+$/,"").toLowerCase()]=await loadImage(fs.readFileSync(path.join(FOTOS_DIR,f)))}catch(e){console.error("foto no válida:",f)}}
+console.log("Fotos reales cargadas:",Object.keys(global.__fotos).length);
 eval(js+`
+for(const p of PRODUCTS){const k1=p.model,k2="slug:"+slugM(p.model);const im=global.__fotos[k1]||global.__fotos[k2];if(im)PHOTOS[p.model]=im;}
 const W=1080,H=1920,FPS=30;
 const payList=()=>[...(S.pay||[]),...((S.payOther||"").trim()?[S.payOther.trim()]:[])];
 const day0=new Date(START+"T12:00:00Z");
@@ -100,3 +114,4 @@ if(news.length)reels.push({d:4,key:"nuevos",title:["Lo más","nuevo"],sub:"iPhon
   console.log("Listo: "+plan.length+" publicaciones en "+OUTDIR+"/plan.json");
 })();
 `);
+})();
